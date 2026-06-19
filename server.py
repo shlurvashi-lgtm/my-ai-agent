@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify
-import urllib.request, json, os
+import urllib.request, json, os, datetime
 
 app = Flask(__name__)
+API_KEY = os.environ.get("OPENROUTER_KEY", "")
+HISTORY_FILE = "chat_history.json"
 
 @app.after_request
 def add_cors(response):
@@ -14,11 +16,14 @@ def add_cors(response):
 def ask():
     if request.method == "OPTIONS":
         return jsonify({}), 200
+
     question = request.json["question"]
-    API_KEY = "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"
     data = json.dumps({
         "model": "openrouter/free",
-        "messages": [{"role": "user", "content": question}]
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant for Swami Construction. Help visitors with questions about construction services, projects and quotes."},
+            {"role": "user", "content": question}
+        ]
     }).encode()
     req = urllib.request.Request(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -26,7 +31,30 @@ def ask():
         headers={"Authorization": "Bearer " + API_KEY, "Content-Type": "application/json"}
     )
     result = json.loads(urllib.request.urlopen(req).read())
-    return jsonify({"answer": result["choices"][0]["message"]["content"]})
+    answer = result["choices"][0]["message"]["content"]
+
+    # Save to history
+    entry = {
+        "time": datetime.datetime.now().isoformat(),
+        "question": question,
+        "answer": answer
+    }
+    history = []
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE) as f:
+            history = json.load(f)
+    history.append(entry)
+    with open(HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=2)
+
+    return jsonify({"answer": answer})
+
+@app.route("/history")
+def history():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE) as f:
+            return jsonify(json.load(f))
+    return jsonify([])
 
 @app.route("/")
 def home():
